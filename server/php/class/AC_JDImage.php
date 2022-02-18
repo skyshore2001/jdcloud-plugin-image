@@ -22,24 +22,11 @@ class AC0_JDImage extends JDApiBase
 		return $f;
 	}
 
-	// 固定生成命令文件: 模板目录/1.sh，输出到out.jpg，不支持并发
-	// 返回生成的文件
-	function compose($param) {
-		$tpl = mparam("template", $param);
-		$tplDir = "upload/jdimage/" . $tpl;
-		$tplFile = $tplDir . "/index.json";
-		if (! is_file($tplFile))
-			jdRet(E_PARAM, "bad tpl file: $tplFile", "找不到模板`$tpl`");
-		$tplContent = @jsonDecode(file_get_contents($tplFile));
-		$outDir = "out/" . date("Ym");
-		$outDir1 = "upload/jdimage/" . $outDir;
-		if (!is_dir($outDir1))
-			mkdir($outDir1, 0770, true);
-
+	private function createCmd($tplPage, $param, $outFile) {
 		// 生成命令行
 		$cmd = "magick -gravity northwest \\\n";
 		$isEmpty = true;
-		foreach ($tplContent["list"] as $e) {
+		foreach ($tplPage["list"] as $e) {
 			if (isset($e["name"]) && isset($param[$e["name"]])) {
 				$e["value"] = $param[$e["name"]];
 			}
@@ -52,15 +39,21 @@ class AC0_JDImage extends JDApiBase
 				// checkParams($e, ["pos"], "模板错误");
 				if (isset($e["pos"])) {
 					list ($x, $y) = explode(',', $e["pos"]);
-					$arr[] = "-geometry +$x+$y";
+					if (isset($e["size"])) {
+						list ($w, $h) = explode(',', $e["size"]);
+						$arr[] = "-geometry {$w}x{$h}+$x+$y";
+					}
+					else {
+						$arr[] = "-geometry +$x+$y";
+					}
 					$arr[] = "-composite";
 				}
 			}
 			else if ($e["type"] == "text") {
-				checkParams($e, ["pos", "font", "fill", "pointsize"], "模板错误");
+				checkParams($e, ["pos", "font", "fill", "size"], "模板错误");
 				$arr[] = "-font \"" . $e["font"] . "\"";
 				$arr[] = "-fill \"" . $e["fill"] . "\"";
-				$arr[] = "-pointsize " . $e["pointsize"];
+				$arr[] = "-pointsize " . $e["size"];
 				$arr[] = "-draw 'text {$e["pos"]} \"{$e["value"]}\"'";
 			}
 			if (count($arr) > 0) {
@@ -71,20 +64,55 @@ class AC0_JDImage extends JDApiBase
 		if ($isEmpty)
 			jdRet(E_PARAM, "no work", "没有数据，无须合成");
 
-		// outFile不含目录名
-		$outFile = self::uniqName($outDir1, date("Ymd_His") . '_' . $tpl, ".jpg");
-		$cmd .= "../$outDir/$outFile";
-		logit($cmd, true, "debug");
+		$cmd .= "$outFile\n";
+		return $cmd;
+	}
 
-		chdir($tplDir);
+	// 固定生成命令文件: 模板目录/1.sh，输出到out.jpg，不支持并发
+	// 返回生成的文件，支持一次多图: [ {path} ]
+	function compose($param) {
+		$tpl = mparam("template", $param);
+		$tplDir = "upload/jdimage/" . $tpl;
+		$tplFile = $tplDir . "/index.json";
+		if (! is_file($tplFile))
+			jdRet(E_PARAM, "bad tpl file: $tplFile", "找不到模板：`$tpl`");
+		$tplContent = @jsonDecode(file_get_contents($tplFile));
+		if (!isset($tplContent[0]["list"]))
+			jdRet(E_PARAM, "bad tpl file: $tplFile", "模板格式错误：`$tpl`");
+
+		$outDir = "out/" . date("Ym");
+		$outDir1 = "upload/jdimage/" . $outDir;
+		if (!is_dir($outDir1))
+			mkdir($outDir1, 0770, true);
+
+		// outFile不含目录名
+		$pageCnt = count($tplContent);
+		$outFile = self::uniqName($outDir1, date("Ymd_His") . '_' . $tpl . ($pageCnt>1? "-1": ""), ".jpg");
+
+		$cmdArr = [];
+		$resArr = [];
+		$page = 1;
+		foreach ($tplContent as $tplPage) {
+			if ($pageCnt > 1 && $page > 1) {
+				# "xx-1.jpg" => "xx-2.jpg"
+				$outFile = str_replace("-" . ($page-1) . ".jpg", "-" . $page . ".jpg", $outFile);
+			}
+			$cmd1 = $this->createCmd($tplPage, $param, "../$outDir/$outFile");
+			$cmdArr[] = $cmd1;
+			$resArr[] = "$outDir1/$outFile";
+			++ $page;
+		}
+
+		$cmd = "#!/bin/sh\ncd \"$tplDir\"\n" . join("\n", $cmdArr);
+		logit($cmd, true, "debug");
 		file_put_contents("1.sh", $cmd);
-		exec("sh ./1.sh", $out, $rv);
+		exec("sh ./1.sh 2>&1", $out, $rv);
 		if ($rv) {
 			$outStr = join("\n", $out);
 			logit("JDImage.compose fails: $cmd\nrv=$rv, out=$outStr");
 			jdRet(E_SERVER, $outStr, "图像合成失败");
 		}
-		return "$outDir1/$outFile";
+		return $resArr;
 	}
 }
 

@@ -1,3 +1,4 @@
+[
 {
   "list": [
     {
@@ -10,8 +11,8 @@
       "name": "名字",
       "value": "张三",
       "fill": "#777777",
-      "font": "FZLTHJW.ttf",
-      "pointsize": 36
+      "font": "FZLTHJW.TTF",
+      "size": 36
     },
     {
       "type": "text",
@@ -19,14 +20,16 @@
       "name": "职位",
       "value": "销售总监",
       "fill": "#770000",
-      "font": "FZLTHJW.ttf",
-      "pointsize": 24
+      "font": "FZLTHJW.TTF",
+      "size": 24
     },
     {
       "type": "image",
       "pos": "200,150",
+	  "size": "80,80",
       "name": "logo",
       "value": "logo.jpg"
     }
   ]
 }
+]
