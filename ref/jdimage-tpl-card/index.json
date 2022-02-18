@@ -1,0 +1,32 @@
+{
+  "list": [
+    {
+      "type": "image",
+      "value": "background.jpg"
+    },
+    {
+      "type": "text",
+      "pos": "200,50",
+      "name": "名字",
+      "value": "张三",
+      "fill": "#777777",
+      "font": "FZLTHJW.ttf",
+      "pointsize": 36
+    },
+    {
+      "type": "text",
+      "pos": "200,100",
+      "name": "职位",
+      "value": "销售总监",
+      "fill": "#770000",
+      "font": "FZLTHJW.ttf",
+      "pointsize": 24
+    },
+    {
+      "type": "image",
+      "pos": "200,150",
+      "name": "logo",
+      "value": "logo.jpg"
+    }
+  ]
+}
