@@ -12,6 +12,8 @@
       "value": "张三",
       "fill": "#777777",
       "font": "FZLTHJW.TTF",
+      "stroke": "#777777",
+      "stroke-width": 1,
       "size": 36
     },
     {
@@ -26,7 +28,7 @@
     {
       "type": "image",
       "pos": "200,150",
-	  "size": "80,80",
+      "size": "80,80",
       "name": "logo",
       "value": "logo.jpg"
     }

@@ -1,12 +1,12 @@
-# jdimage - 图像合成等处理
+# jdcloud-plugin-image - 图像合成等处理
 
-合成图像模板和参数数据，生成最终的图片。
+jdimage组件用于合成图像模板和参数数据，生成最终的图片。
 
 	图像模板 + 参数数据 = 实例图片
 
 ## 安装
 
-	./tool/jdcloud-plugin.sh add ../jdcloud-plugin-jdimage
+	./tool/jdcloud-plugin.sh add ../jdcloud-plugin-image
 
 ### 安装ImageMagick软件
 
@@ -18,7 +18,18 @@
 	sh
 	magick
 
-注意：Win10等系统中apache服务可能无法执行外部命令，造成接口或调用卡死（在进程管理器中可用sh进程），通过在Windows服务管理器中将服务的登录用户（默认是SYSTEM）改为当前用户可以解决。
+注意：Win10等系统中apache服务可能无法执行git-bash下的sh系列命令，表现为找不到命令或调用卡死（在进程管理器中可用sh进程且占用CPU很高）。
+请确保：
+
+- 在Windows环境下，sh是安装git-bash后自带的（路径示例：C:\Program Files\Git\usr\bin）；
+	如果使用Apache系统服务的方式（默认是SYSTEM用户执行），应确保上述命令行在系统PATH（而不只是当前用户的PATH）中。
+
+- Win10环境中Apache+php调用shell可能会卡死，应修改git-bash下的文件：/etc/nsswitch.conf （路径示例：C:\Program Files\Git\etc\nsswitch.conf）
+
+		db_home: env 
+		#db_home: env windows cygwin desc
+
+如果仍无法解决，则通过在Windows服务管理器中将服务的登录用户（默认是SYSTEM）改为当前用户可以解决。
 
 在CentOS7上，安装ImageMagick:
 
@@ -76,7 +87,7 @@
 
 说明：
 
-- type: Enum(image-图，text-文)
+- type: Enum(image-图，text-文, param-处理参数)
 - name: 可选，如果指定，则表示它是个可变参数，name就是参数名，其值(value)可以被参数数据覆盖。
 - value: 可选，在合成时，可被参数数据覆盖。如果value未指定，且参数中也未指定，则不处理该项。
 	如果type=image，表示文件路径，一般用目录内的相对路私。
@@ -95,8 +106,8 @@
 
 	magick -gravity northwest \
 		background.jpg \
-		-font "FZLTHJW.ttf" -fill '#777' -pointsize 36 -draw 'text 200,50 "李四"'  \
-		-font "FZLTHJW.ttf" -fill '#770000' -pointsize 24 -draw 'text 200,100 "销售总监"'  \
+		-draw 'font FZLTHJW.TTF fill #777777 font-size 36 text 200,50 "李四"'  \
+		-draw 'font FZLTHJW.TTF fill #770000 font-size 24 text 200,100 "销售总监"'  \
 		logo.png  -geometry 80x80+200+150 -composite \
 		out.jpg 
 
@@ -120,6 +131,113 @@
 	]
 
 如果只有一页，生成图片名为xx.jpg，如果是多页，图片名后会带上后缀 xx-1.jpg, xx-2.jpg 这样。
+
+### 关于粗体
+
+使用粗体需要有专门对应的字体文件，如果没有，则一般通过描边（stroke/stroke-width）来模拟粗体，设置示例：
+
+	{
+		"type": "text",
+		"pos": "200,50",
+		"name": "名字", // 参数名
+		"value": "张三", // 参数默认值，可以不指定
+		"fill": "#777777", // 颜色
+		"font": "FZLTHJW.TTF", // 字体
+		"size": 36, // 字号
+
+		// 模拟粗体：
+		"stroke": "#777777", // 边缘颜色与字色一致
+		"stroke-width": 1, // 边宽，常用1或2，字体越大，值可以越大。
+	},
+
+### 印刷需要CMYK图片
+
+一般电脑上看到的图片的颜色空间(colorspace)是sRGB，而印刷需要颜色空间为CMYK的图片（注意与打印不同，打印一般也用sRGB），否则会有色差。
+
+如果底图是sRGB，那么合成后为了印刷时颜色不产生色差，可以转换图片格式，
+
+	// 某模板：
+	{
+		"list": [
+			{
+				type: "image",
+				...
+			},
+			...,
+			// 转为CMYK图片
+			{
+			  "type": "param",
+			  "value": "-colorspace CMYK"
+			}
+		]
+	}
+
+其原理是在命令行的最后加上指定参数，如：
+
+	magick ... -colorspace CMYK ...
+
+注意：
+
+sRGB图片转CMYK图片后，在chrome系的浏览器中肉眼看不出色差等区别；
+但在IE、Windows图片编辑器(mspaint)等软件中可以看到色差。这可能是各软件在转换颜色空间时使用的profile（即sRGB与CMYK的对应关系）不同导致。
+
+如果底图是CMYK图片，则无须做转换。
+
+centos 7上imagemagick 6.x版本有个bug，如果底图是CMYK，则处理过程中叠加其它图片时颜色会反色。为应对这种情况，可先将底图转为sRGB，处理完后再转到CMYK，所以配置为：
+
+	// 某模板：
+	{
+		"list": [
+			{
+				type: "image",
+				...
+			},
+			// 先转为sRGB图片
+			{
+			  "type": "param",
+			  "value": "-colorspace sRGB"
+			},
+			// 叠加其它sRGB图片
+			{
+			  "type": "image",
+			  "pos": "265,982",
+			  "size": "300,300",
+			  "name": "二维码",
+			  "value": ""
+			},
+			// 最终转为CMYK图片
+			{
+			  "type": "param",
+			  "value": "-colorspace CMYK"
+			}
+		]
+	}
+
+### 使用命令行参数进行图片编辑
+
+在处理时可以通过`type: "param"`来指定任意magick软件的命令行参数，参考文档：
+http://www.imagemagick.org/script/command-line-options.php#draw
+
+示例：转灰度图
+
+	{
+	  "type": "param",
+	  "value": "-colorspace gray"
+	}
+
+示例：压缩图片使其最大宽高不超过1200：
+
+	{
+	  "type": "param",
+	  "value": "-resize 1200x1200"
+	}
+
+上例中如果是小图片，则会被拉伸到1200，为避免这种情况可设置为：
+
+	{
+	  "type": "param",
+	  "value": "-resize '1200x1200>'"
+	}
 
 ## 接口
 

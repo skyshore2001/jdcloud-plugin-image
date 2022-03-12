@@ -22,6 +22,12 @@ class AC0_JDImage extends JDApiBase
 		return $f;
 	}
 
+	static function myQ($s, $forceQuote=false) {
+		$s = preg_replace('/([\'"])/', '\\\\$1', $s);
+		if ($forceQuote || preg_match('/[^\w_,.#]/', $s))
+			return '"' . $s . '"';
+		return $s;
+	}
 	private function createCmd($tplPage, $param, $outFile) {
 		// 生成命令行
 		$cmd = "magick -gravity northwest \\\n";
@@ -51,10 +57,30 @@ class AC0_JDImage extends JDApiBase
 			}
 			else if ($e["type"] == "text") {
 				checkParams($e, ["pos", "font", "fill", "size"], "模板错误");
-				$arr[] = "-font \"" . $e["font"] . "\"";
-				$arr[] = "-fill \"" . $e["fill"] . "\"";
-				$arr[] = "-pointsize " . $e["size"];
-				$arr[] = "-draw 'text {$e["pos"]} \"{$e["value"]}\"'";
+				$drawCmd = [];
+				foreach ([
+					"font" => "font",
+					"fill" => "fill",
+					"size" => "font-size",
+					"stroke" => "stroke",
+					"stroke-width" => "stroke-width",
+					"decorate" => "decorate",
+					"pos" => "text"
+				] as $k0 => $k) {
+					if (isset($e[$k0])) {
+						$drawCmd[] = $k . ' ' . self::myQ($e[$k0]);
+					}
+				}
+				$s = join(' ', $drawCmd);
+				$v = self::myQ($e["value"], true);
+				$arr[] = "-draw '$s $v'";
+# 				$arr[] = "-font \"" . $e["font"] . "\"";
+# 				$arr[] = "-fill \"" . $e["fill"] . "\"";
+# 				$arr[] = "-pointsize " . $e["size"];
+#				$arr[] = "-draw 'text {$e["pos"]} \"{$e["value"]}\"'";
+			}
+			else if ($e["type"] == "param") {
+				$arr[] = $e["value"];
 			}
 			if (count($arr) > 0) {
 				$cmd .= join(' ', $arr) . " \\\n";
