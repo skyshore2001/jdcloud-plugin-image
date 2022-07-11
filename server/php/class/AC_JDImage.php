@@ -28,14 +28,22 @@ class AC0_JDImage extends JDApiBase
 			return '"' . $s . '"';
 		return $s;
 	}
-	private function createCmd($tplPage, $param, $outFile) {
+
+	private function composeParam(&$tplContent, $param) {
+		foreach ($tplContent as &$tplPage) {
+			foreach ($tplPage["list"] as &$e) {
+				if (isset($e["name"]) && isset($param[$e["name"]])) {
+					$e["value"] = $param[$e["name"]];
+				}
+			}
+		}
+	}
+
+	private function createCmd($tplPage, $outFile) {
 		// 生成命令行
 		$cmd = "magick -gravity northwest \\\n";
 		$isEmpty = true;
 		foreach ($tplPage["list"] as $e) {
-			if (isset($e["name"]) && isset($param[$e["name"]])) {
-				$e["value"] = $param[$e["name"]];
-			}
 			if (! $e["value"])
 				continue;
 
@@ -96,15 +104,34 @@ class AC0_JDImage extends JDApiBase
 
 	// 固定生成命令文件: 模板目录/1.sh，输出到out.jpg，不支持并发
 	// 返回生成的文件，支持一次多图: [ {path} ]
-	function compose($param) {
+	function compose($param, $tplContent=null, $opt=[]) {
 		$tpl = mparam("template", $param);
-		$tplDir = "upload/jdimage/" . $tpl;
-		$tplFile = $tplDir . "/index.json";
-		if (! is_file($tplFile))
-			jdRet(E_PARAM, "bad tpl file: $tplFile", "找不到模板：`$tpl`");
-		$tplContent = @jsonDecode(file_get_contents($tplFile));
-		if (!isset($tplContent[0]["list"]))
-			jdRet(E_PARAM, "bad tpl file: $tplFile", "模板格式错误：`$tpl`");
+		if ($tplContent) {
+			if (!isset($tplContent[0]["list"]))
+				jdRet(E_PARAM, "bad tpl", "模板格式错误：`$tpl`");
+			$tplDir = null; // 即当前BASE_DIR目录
+		}
+		else { 
+			// 根据模板目录，生成$tplContent和$opt
+			$tplDir = "upload/jdimage/" . $tpl;
+			$tplFile = $tplDir . "/index.json";
+			if (! is_file($tplFile))
+				jdRet(E_PARAM, "bad tpl file: $tplFile", "找不到模板：`$tpl`");
+			$tplContent = @jsonDecode(file_get_contents($tplFile));
+			if (!isset($tplContent[0]["list"]))
+				jdRet(E_PARAM, "bad tpl file: $tplFile", "模板格式错误：`$tpl`");
+
+			$preFile = $tplDir . "/pre-compose.php";
+			if (is_file($preFile)) {
+				$opt["pre-compose"] = file_get_contents($preFile);
+			}
+		}
+		$this->composeParam($tplContent, $param);
+
+		if ($opt["pre-compose"]) {
+			$env = new ImageComposeScriptEnv($tplContent);
+			$env->execScript($opt["pre-compose"], $env);
+		}
 
 		$outDir = "out/" . date("Ym");
 		$outDir1 = "upload/jdimage/" . $outDir;
@@ -123,13 +150,25 @@ class AC0_JDImage extends JDApiBase
 				# "xx-1.jpg" => "xx-2.jpg"
 				$outFile = str_replace("-" . ($page-1) . ".jpg", "-" . $page . ".jpg", $outFile);
 			}
-			$cmd1 = $this->createCmd($tplPage, $param, "../$outDir/$outFile");
+			if ($tplDir) {
+				$outFile1 = "../$outDir/$outFile";
+			}
+			else {
+				$outFile1 = "$outDir1/$outFile";
+			}
+
+			$cmd1 = $this->createCmd($tplPage, $outFile1);
 			$cmdArr[] = $cmd1;
 			$resArr[] = "$outDir1/$outFile";
 			++ $page;
 		}
 
-		$cmd = "#!/bin/sh\ncd \"$tplDir\"\n" . join("\n", $cmdArr);
+		// 如果在模板目录，则在模板目录下执行；否则直接在项目目录下执行。注意文件路径的引用。
+		$cmd = "#!/bin/sh\n";
+		if ($tplDir) {
+			$cmd .= "cd \"$tplDir\"\n";
+		}
+		$cmd .= join("\n", $cmdArr);
 		logit($cmd, true, "debug");
 		file_put_contents("1.sh", $cmd);
 		exec("sh ./1.sh 2>&1", $out, $rv);
@@ -145,3 +184,45 @@ class AC0_JDImage extends JDApiBase
 class AC2_JDImage extends AC0_JDImage
 {
 }
+
+class ImageComposeScriptEnv extends ScriptEnv
+{
+	protected $tplContent;
+
+	function __construct(&$tplContent) {
+		$this->tplContent = &$tplContent;
+	}
+
+	function get($name, $attr) {
+		foreach ($this->tplContent as $page) {
+			foreach ($page["list"] as $e) {
+				if ($e["name"] == $name)
+					return $e[$attr];
+			}
+		}
+	}
+	function set($name, $attr, $value) {
+		foreach ($this->tplContent as &$page) {
+			foreach ($page["list"] as &$e) {
+				if ($e["name"] == $name) {
+					if (is_callable($value)) {
+						$e[$attr] = $value($e[$attr], $e);
+					}
+					else {
+						$e[$attr] = $value;
+					}
+					return;
+				}
+			}
+		}
+	}
+	function move($name, $offsetX, $offsetY) {
+		return $this->set($name, "pos", function ($value, $e) use ($offsetX, $offsetY) {
+			$arr = explode(',', $value);
+			$arr[0] += $offsetX;
+			$arr[1] += $offsetY;
+			return join(',', $arr);
+		});
+	}
+}
+

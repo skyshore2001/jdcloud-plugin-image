@@ -239,6 +239,42 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 	  "value": "-resize '1200x1200>'"
 	}
 
+### 自定义代码逻辑
+
+需求示例：
+
+- “地址”组件中可能字很多（或有回车），这时地址将分多行显示，位于地址组件下面的其它组件位置应自动下移；
+- 当“公司”名组件设置了"XX公司"之后，公司名英文、公司logo图片应相应地自动填写设置好。
+
+解决方案：
+
+在模板文件夹下面创建 pre-compose.php 文件，在其中编写代码。
+注意代码符合php格式，前缀"<?php"可以有也可以没有。不允许定义函数（可调用的函数也会受限制），不允许使用修改GLOBAL变量等。
+
+可用的变量或函数：
+
+- get(组件名, 属性名) 和 set(组件名, 属性名, 属性值): 读写组件属性值。
+示例：判断或修改某组件的某属性：
+
+		// 如果名字大于3个字符，字号改为24(原字号是36)
+		// 注意对字符串的处理，为支持中文，应使用`mb_xxx`系列函数，如mb_strlen/mb_substr/mb_strpos等。
+		if (mb_strlen($env->get("名字", "value")) > 3) {
+			$env->set("名字", "size", 24);
+		}
+		// 如果名字是"XX公司"，自动修改"英文名"和"logo"组件的图。
+		if ($env->get("名字", "value") == "XX公司") {
+			$env->set("英文名", "value", "XX Co Ltd.");
+			$env->set("logo", "value", "logo-xx.png");
+		}
+
+- move(组件名, offsetX, offsetY): 修改组件位置
+示例：判断如果“名字”组件有多行，其它组件下移
+
+		if (mb_strpos($env->get("名字", "value"), "\n") !== false) {
+			$env->move("职位", 0, 100);
+			$env->move("logo", 0, 100);
+		}
+
 ## 接口
 
 根据模板合成图片：
@@ -281,15 +317,66 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 
 ## 后端内部接口
 
-	AC0_JDImage.compose(param)
+基于模板目录进行合成：
+
+	AC0_JDImage.compose(param) -> [ { path } ]
+
+- param: key-value数据，必须包含"template"指定模板名，程序将根据该模板名找到模板目录。
+
+返回页面数组，每个页面中通过path指定最终图片文件。
 
 示例：
 
 	$img = new AC0_JDImage();
-	$rv = $img->compose({
-		template: "card",
-		"名字": "李四",
-		"职位": "销售总监",
-	});
-	// rv是个数组: [ { path: "xxx.jpg" } ]
+	$rv = $img->compose([
+		"template" => "card",
+		"名字" => "李四",
+		"职位" => "销售总监",
+	], $tplContent, $opt);
+	// 返回rv是个数组，如: [ { path: "xxx.jpg" } ]
+
+也支持直接定义模板，无须模板目录，比如可以从数据库中加载模板相关数据，用于更加深入的集成：
+
+	AC0_JDImage.compose(param, tplContent, opt) -> [ { path } ]
+
+- tplContent: 模板。其结构与模板目录下index.json相同，是一个页面数组，每个页面是 `{list: [...]}`结构，list中是组件数组。
+- opt: "pre-compose"选项是一个字符串，与模板目录下`pre-compose.php`作用相同，即是个用户自定义代码。
+
+示例：
+
+```php
+function api_test1()
+{
+	$tplContent = [
+		// 页面1
+		[
+			// 组件列表
+			"list" => [
+				// 注意引用文件的相对路径，当不使用模板目录时，当前路径是$BASE_DIR的，否则当前目录将是模板目录
+				["type" => "image", "value" => "upload/jdimage/card/background.jpg"],
+				["type" => "text", "pos" => "200,50", "name" => "名字", "size" => 36, "font"=>"upload/jdimage/card/FZLTHJW.TTF", "fill"=>"#777777"]
+			]
+		]
+	];
+	$opt = [
+		"pre-compose" => '
+		if (mb_strlen($env->get("名字", "value")) > 3) {
+			$env->set("名字", "size", 24);
+		}
+		'
+	];
+	$img = new AC0_JDImage();
+	$rv = $img->compose([
+		"template" => "card",
+		"名字" => "李四",
+		"职位" => "销售总监",
+	], $tplContent, $opt);
+	// 返回rv是个数组，如: [ { path: "xxx.jpg" } ]
+	return $rv;
+}
+```
+
+测试：
+
+	callSvr("test1");
 
