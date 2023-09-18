@@ -70,12 +70,14 @@ class AC0_JDImage extends JDApiBase
 					"font" => "font",
 					"fill" => "fill",
 					"size" => "font-size",
+					"kerning" => "kerning",
+					"interline-spacing" => "interline-spacing",
 					"stroke" => "stroke",
 					"stroke-width" => "stroke-width",
 					"decorate" => "decorate",
-					"pos" => "text"
+					"pos" => "text",
 				] as $k0 => $k) {
-					if (isset($e[$k0])) {
+					if (!empty($e[$k0])) {
 						$drawCmd[] = $k . ' ' . self::myQ($e[$k0]);
 					}
 				}
@@ -102,7 +104,8 @@ class AC0_JDImage extends JDApiBase
 		return $cmd;
 	}
 
-	// 固定生成命令文件: 模板目录/1.sh，输出到out.jpg，不支持并发
+	// 生成命令文件jdimage-cmd.sh供调试. 支持并发.
+	// $opt={pre-compose}
 	// 返回生成的文件，支持一次多图: [ {path} ]
 	function compose($param, $tplContent=null, $opt=[]) {
 		$tpl = mparam("template", $param);
@@ -170,13 +173,21 @@ class AC0_JDImage extends JDApiBase
 		}
 		$cmd .= join("\n", $cmdArr);
 		logit($cmd, true, "debug");
-		file_put_contents("1.sh", $cmd);
-		exec("sh ./1.sh 2>&1", $out, $rv);
+		// hash文件名, 支持并发
+		do {
+			$f = "jdimage-cmd-" . rand(1000, 9999) . ".sh";
+			if (! file_exists($f))
+				break;
+		} while (true);
+		file_put_contents($f, $cmd);
+		exec("sh ./$f 2>&1", $out, $rv);
 		if ($rv) {
 			$outStr = join("\n", $out);
 			logit("JDImage.compose fails: $cmd\nrv=$rv, out=$outStr");
 			jdRet(E_SERVER, $outStr, "图像合成失败");
 		}
+		// 不删除，方便调试查看
+		rename($f, "jdimage-cmd.sh");
 		return $resArr;
 	}
 }
@@ -185,33 +196,56 @@ class AC2_JDImage extends AC0_JDImage
 {
 }
 
+/*
+示例：
+
+	$env->get("地址", "value");
+	$env->set("地址", "value", "上海市XX区");
+	$env->move("地址", 20, -30); // 横向右移20，纵向上移30
+	$n = $env->自动换行("地址", 10); // 一行最多10个字，超过则自动换行，返回实际行数
+	$n = $env->行数("地址"); // 取实际行数
+
+*/
 class ImageComposeScriptEnv extends ScriptEnv
 {
-	protected $tplContent;
+	public $tplContent;
 
 	function __construct(&$tplContent) {
 		$this->tplContent = &$tplContent;
 	}
 
-	function get($name, $attr) {
+	private function parseName(&$name, &$idx) {
+		$name = preg_replace_callback('/\[(\d+)\]$/', function ($ms) use (&$idx) {
+			$idx = intval($ms[1]);
+		}, $name);
+	}
+	function get($name, $attr, $page=null) {
+		$idx = null;
+		$this->parseName($name, $idx);
 		foreach ($this->tplContent as $page) {
 			foreach ($page["list"] as $e) {
-				if ($e["name"] == $name)
+				if ($e["name"] == $name) {
+					if ($idx !== null && $idx-- != 0)
+						continue;
 					return $e[$attr];
+				}
 			}
 		}
 	}
-	function set($name, $attr, $value) {
+	function set($name, $attr, $value, $page=null) {
+		$idx = null;
+		$this->parseName($name, $idx);
 		foreach ($this->tplContent as &$page) {
 			foreach ($page["list"] as &$e) {
 				if ($e["name"] == $name) {
+					if ($idx !== null && $idx-- != 0)
+						continue;
 					if (is_callable($value)) {
 						$e[$attr] = $value($e[$attr], $e);
 					}
 					else {
 						$e[$attr] = $value;
 					}
-					return;
 				}
 			}
 		}
@@ -223,6 +257,23 @@ class ImageComposeScriptEnv extends ScriptEnv
 			$arr[1] += $offsetY;
 			return join(',', $arr);
 		});
+	}
+
+	// 返回总行数，返回行数。不指定$n则直接返回行数
+	function 自动换行($name, $n) {
+		$v = $this->get($name, "value");
+		if (!$v)
+			return 0;
+		if ($n > 0) {
+			$v = preg_replace('/[^\r\n]{'.$n.'}\K(?=.)/u', "\n", $v);
+			$this->set($name, "value", $v);
+		}
+		$cnt = 0;
+		preg_replace('/\n/', '\n', $v, -1, $cnt);
+		return $cnt+1;
+	}
+	function 行数($name) {
+		return $this->自动换行($name, 0);
 	}
 }
 

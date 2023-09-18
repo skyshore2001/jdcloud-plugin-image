@@ -253,6 +253,13 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 
 可用的变量或函数：
 
+- tplContent: 页面数组，可直接修改，比如在第1页添加一个处理组件：
+
+		$env->tplContent[0]["list"][] = [
+			"type" => "param",
+			"value" => "-colorspace CMYK"
+		];
+
 - get(组件名, 属性名) 和 set(组件名, 属性名, 属性值): 读写组件属性值。
 示例：判断或修改某组件的某属性：
 
@@ -267,6 +274,12 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 			$env->set("logo", "value", "logo-xx.png");
 		}
 
+	如果有同名组件，不管是在同一页面中有同名组件，还是多个页面中有组件同名，get操作只取第1个名字匹配组件的值，而set操作是更新所有同名组件的值。
+	也可以通过数组索引明确指定操作哪个组件，即把组件看成一个数组，注意数组索引是从0开始的：
+
+		$sz = $env->get("名字[0]", "size");
+		$env->set("名字[0]", "size", 24);
+
 - move(组件名, offsetX, offsetY): 修改组件位置
 示例：判断如果“名字”组件有多行，其它组件下移
 
@@ -274,6 +287,10 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 			$env->move("职位", 0, 100);
 			$env->move("logo", 0, 100);
 		}
+
+	move操作底层使用set实现，所以当有同名时也可以指定数组索引，如操作第2个：
+
+		$env->move("logo[1]", 0, 100);
 
 ## 接口
 
@@ -300,17 +317,17 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 		"职位": "销售总监",
 	})
 
-返回示例：
+返回示例：(输出文件默认路径为 upload/jdimage/out/{年月,如202202}, 文件名一般为 `{年月日_时分秒_模板名}.jpg`)
 
 	[
-		{ path: "upload/202202/333.jpg" }
+		{ path: "upload/jdimage/out/202202/333.jpg" }
 	]
 
-如果有多张图，会加数字后缀：
+如果有多张图，会加数字后缀(页码)：
 
 	[
-		{ path: "upload/202202/333-1.jpg" }
-		{ path: "upload/202202/333-2.jpg" }
+		{ path: "upload/jdimage/out/202202/333-1.jpg" }
+		{ path: "upload/jdimage/out/202202/333-2.jpg" }
 	]
 
 通过拼接baseUrl可得到图片完整URL。
@@ -332,7 +349,7 @@ http://www.imagemagick.org/script/command-line-options.php#draw
 		"template" => "card",
 		"名字" => "李四",
 		"职位" => "销售总监",
-	], $tplContent, $opt);
+	]);
 	// 返回rv是个数组，如: [ { path: "xxx.jpg" } ]
 
 也支持直接定义模板，无须模板目录，比如可以从数据库中加载模板相关数据，用于更加深入的集成：
